@@ -1,0 +1,381 @@
+---
+title: "MovieLens Recommendation System Project"
+author: "Mohammed Chihab"
+date: "5/5/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## <span style="color: blue;">Executive Summary </span>
+<br /> 
+<br /> 
+As a brief summary, the main goal of this project is to create a movie recommendation system by developping an algorithm that will yield better prediction. The steps perfomed throughout this project are as follows: First, datasets were generated. second, data rows  were made sure not to duplicate in each both sets. Third, the algorithm was started in its development; here, we focus on how much our predictions are affected by different variables in our dataset, then, the total variability of the effect sizes was regularized by a penalty term. Cross validation and the calculated root mean squared errors (RMSEs) were used to select the penalty term, a single penalty term was decided upon and chosen to fit the model. Finally, the model was applied to predict the test set and the root mean squared error (RMSE) was used as an evaluation to those results.
+
+
+ 
+## <span style="color: blue;">Methods/Analysis </span>
+<br /> 
+<br />
+<span style="color: blue;">**1.01 seting up the main datasets**</span> 
+<br /> 
+<br />
+The project will make use of two datasets that will be generated using a pre-developped code by the course staff. The datasets are named **edx** and **validation **.
+
+```{r, reading_rds, eval=FALSE, include=FALSE}
+#OPTIONAL SECTION
+
+# **IMPORTANT NOTE**
+#If you have the edx and validation datasets already prepared in your computer and you want to save time running the code again, please activate this code (you need uncomment and to specify the exact location faile path in the code below), and disactivate the code on downloading and building the data from scratch.
+
+# datasets:
+#library(tidyverse)
+#library(caret)
+#library(readr)
+#edx <- edx <- readRDS("Specify the file path here")
+#validation <- readRDS("specify the file path here")
+```
+
+
+```{r, datasets_00, eval=TRUE}
+################################
+# Create edx set, validation set
+################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+# MovieLens 10M dataset:
+ # https://grouplens.org/datasets/movielens/10m/
+ # http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+ download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+ colnames(movies) <- c("movieId", "title", "genres")
+ movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                            title = as.character(title),
+                                            genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+ edx <- movielens[-test_index,]
+ temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+      semi_join(edx, by = "movieId") %>%
+      semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+ edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+<br /> 
+<br /> 
+<span style="color: blue;">**1.02 Exploring the edx dataset**</span>
+<br />
+<br /> / 
+**edx dataset as of 5/9/2020**  
+```{r, datasets_01_1, eval=TRUE}
+
+# first three rows in the edx dataset
+head(edx, 3)
+
+
+# last three rows in the edx dataset
+tail(edx, 3)
+
+
+# edx dimentions:
+dim(edx)
+
+# The different movies in the edx dataset
+n_distinct(edx$movieId)
+
+
+# The different users in the edx dataset
+n_distinct(edx$userId)
+
+
+# The different genres combinations in the edx dataset
+n_distinct(edx$genres)
+
+
+# The top 2 ratings in the edx dataset
+edx %>% group_by(rating) %>% summarize(count = n()) %>% top_n(2) %>%
+	arrange(desc(count))
+
+
+# The lowest 2 ratings in the edx dataset
+edx %>% group_by(rating) %>% summarize(count = n()) %>% top_n(-2) %>%
+	arrange(count)
+```
+
+
+``` {r, fig1, fig.height = 3.5, fig.width = 3.5, fig.align = "center", eval=TRUE}
+# The number of counts per ratings plotted
+edx %>%
+	group_by(rating) %>%
+	summarize(count = n()) %>%
+	ggplot(aes(x = rating, y = count)) +
+	geom_line()
+
+```
+
+<br /> 
+<br /> 
+<span style="color: blue;">**1.03 Deciding on the main training set and main validation test set**</span>
+<br />
+<br /> 
+The datasets, **edx** and **validation **, will represent the **training set** and the **test set** respectively.
+
+```{r, datasets_02, eval=TRUE}
+
+# Renaming edx and validation data sets as train and test sets respictively.
+
+train_set <- edx
+test_set <- validation
+```
+<br /> 
+<br /> 
+<span style="color: blue;">**2.00 Splitting the edx dataset into a training set and a test set, For the pupose of training**</span>
+<br /> 
+<br />
+Once both datasets are prepared, the next step is to reserve the **validation ** dataset for final testing, and split the **edx** dataset into two sets, a **training training set** and a **training test set** respectively. This will give the model saught to be developped more credibility.
+<br /> 
+<br />
+As the process will generate random datasets, it is best to set the seed.
+
+```{r, set_seed, eval=TRUE, warning = FALSE}
+
+# Set the seed to 1. If  you are using R 3.5 or earlier, use `set.seed(1)` instead
+
+set.seed(1, sample.kind="Rounding")
+```
+
+Now create the **training training set** and a **training test set** by splitting the **train_set** which is the **edx** dataset.
+
+```{r, datasets_03, eval=TRUE}
+
+# Split the train_set into train_train_set and train_test_set
+
+train_test_index <- createDataPartition(y = train_set$rating , times = 1, p = 0.1, list = FALSE)
+train_train_set <- train_set[-train_test_index,]
+train_test_set <- train_set[train_test_index,]
+```
+
+Use semi-join to make sure data rows do not duplicate in both sets. This will help make the results uneffected with duplicates.
+
+```{r, semi_join_01, eval=TRUE}
+
+# Avoid duplication
+
+train_test_set <- train_test_set %>% 
+  semi_join(train_train_set, by = "movieId") %>%
+  semi_join(train_train_set, by = "userId")
+```
+<br /> 
+<br /> 
+<span style="color: blue;">**3.01 Fitting and testing a model through the train_train_set and the train_test_set**</span>
+<br /> 
+<br />
+In this section, to fit and build our model,  the **test_set** which is the **validation set** will **not** be used. It will be left for final assessment on which our model will be used upon, it will mainly serve as a stranger data that simulates reality.
+<br /> 
+<br />
+Here, the variables that will be taken into account are: the **mean** of the ratings in the training training set, the **average rating for each movie** and the **effect of each user** on the ratings as well as the **effect of the genres combinations** on the ratings .  
+<br /> 
+<br />
+For better results, While fitting some few different models, it has appeared that **regularizing**  the total variability of the effect sizes of our variables by adding a penalty term based on a tuning parameter ( call it: **lambda**), **i.e.** to calculate the (average rating for movie) and the (user-specific effect) variables by restraining them  makes the model better and yields a somewhat satisfying results.
+<br /> 
+<br /> 
+Cross validation is used here to decide on the tuning perimeter lambda.  
+This sequence of numbers from 1 to 8 by 2 step has been used.
+```{r, lambdas, eval=TRUE}
+
+# set up the tuning perimeter lambdas
+
+lambdas <- seq(1, 8, 2)
+lambdas
+```
+
+Once the perimeters are set up, and since the root mean squared error (RMSE) can be interpreted similarly to the standrad deviation,it will be used as our loss function to choose the best lambda for our model fitting and to test our predictions. 
+```{r, rmse_function, eval=TRUE}
+
+# set up the RMSE function
+
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+```
+
+To choose lambda through rmses, a function will be created that will iterate over each perimeter and then the one that generates the minimum rmse will be chosen as our tuning parameter. 
+<br /> 
+<br /> 
+The variables that will be used are the ones mentioned before and they are as follows: <br />
+- **lambda**: our tuning perimeter for our penalty term. <br />
+- **mu**: The **mean** of the ratings. <br />
+- **e_i**: The **effect of the average rating for each movie**. <br />
+- **e_u**: The **effect of each user** on the ratings, while taking into consideration **e_i**. <br />
+- **e_g**: The **effect of genres compbinations** on the ratings, , while taking into consideration **e_i** and **e_u**. <br />
+- **pred** from The **predicted_ratings** variable, which will represent the sum of **mu**, **e_i**, **e_u** and **e_g**.<br />
+<br /> 
+<br /> 
+**NOTE:** This will also serve as our model if the best tuning perimeter is the only perimeter taken into account to calculate the penalty term.
+
+```{r, rmseS_function, eval=TRUE}
+
+# set up the RMSES function
+
+rmses <- sapply(lambdas, function(lambda){
+  mu <- mean(train_train_set$rating)
+  e_i <- train_train_set %>%
+    group_by(movieId) %>%
+    summarize(e_i = sum(rating - mu)/(n()+lambda))
+  e_u <- train_train_set %>% 
+    left_join(e_i, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(e_u = sum(rating - e_i - mu)/(n()+lambda))
+  e_g <- train_train_set %>% 
+    left_join(e_i, by="movieId") %>%
+    left_join(e_u, by="userId") %>%
+    group_by(genres) %>%
+    summarize(e_g = sum(rating - e_i - e_u - mu)/(n()+lambda))
+  predicted_ratings <- 
+    train_test_set %>% 
+    left_join(e_i, by = "movieId") %>%
+    left_join(e_u, by = "userId") %>%
+    left_join(e_g, by = "genres") %>%
+    mutate(pred = mu + e_i + e_u + e_g) %>%
+    .$pred
+  return(RMSE(predicted_ratings, train_test_set$rating))
+})
+```
+
+plot the rmses against the lambdas to see how each lambda performs.
+
+```{r, fig2, fig.height = 3.5, fig.width = 3.5, fig.align = "center", eval=TRUE}
+
+# plot the rmses against the lambdas
+
+qplot(lambdas, rmses)
+```
+
+pick the best performing lambda to be used as our tuning perimeter.
+
+```{r, best_lambda, eval=TRUE}
+
+# find out the minimum RMSE
+
+min(rmses)
+
+# find out the corresponding lambda for the minimum RMSE
+
+lambda <- lambdas[which.min(rmses)]
+lambda
+```
+
+The minimum rmse (**0.8638148**) calculated on the edx test set (**train_test_set**) is lower than the rmse requested in the guidelines on the project best rmses (**0.86490**) by **0.0010852**, which shows that our model is performing well as requested on the **train_test_set**. So, lets how it performs  **elsewhere** exactly on the **validation set**. 
+
+<br /> 
+<br /> 
+<span style="color: blue;">**3.02 Model implementation on a simulated foreign data (validation dataset)**</span>
+<br /> 
+<br /> 
+In this section, we think of the **validation dataset**, which we renamed **test_set**, as a foreign dataset by simulation. This dataset has **NOT BEEN USED yet**. For training our model, we instead used the **edx** dataset, which we renamed **training_set** which is split into training set, named **training_training_set**, and test set,named **training_test_set**, to avoid the use of the **validation set**. 
+
+Here, we will be using our **model** that we have created and tested before on this **novel data**: the **validation dataset** to **predict** ratings of movies. 
+
+```{r, Model_implementation, eval=TRUE}
+
+# Model implementation on a simulated novel foreign data (the validation dataset)
+
+lambda <- 5
+
+mu <- mean(train_set$rating)
+
+e_i <- train_set %>%
+  group_by(movieId) %>%
+  summarize(e_i = sum(rating - mu)/(n()+lambda))
+
+e_u <- train_set %>% 
+  left_join(e_i, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(e_u = sum(rating - e_i - mu)/(n()+lambda))
+
+e_g <- train_set %>% 
+  left_join(e_i, by="movieId") %>%
+  left_join(e_u, by="userId") %>%
+  group_by(genres) %>%
+  summarize(e_g = sum(rating - e_i - e_u - mu)/(n()+lambda))
+
+predicted_ratings <- 
+  test_set %>% 
+  left_join(e_i, by = "movieId") %>%
+  left_join(e_u, by = "userId") %>%
+  left_join(e_g, by = "genres") %>%
+  mutate(pred = mu + e_i + e_u + e_g) %>%
+  .$pred
+
+```
+
+Here we create a data frame of the first 10 true ratings and predicted ratings to get a glimps of how our model has performed. Next, in the results we shall apply a better method, the rmse function, to get a better sense of the performance of our model.   
+
+```{r, df_pred_trueV, eval=TRUE}
+
+# display the first 10 entries of the true ratings and the predicted ratings
+
+df <- data.frame(true_ratings = head(test_set$rating, 10), prediced_ratings = head(predicted_ratings, 10))
+df
+```
+
+
+## <span style="color: blue;">Results Using RMSE</span>
+<br /> 
+<br />
+In this section, we shall use the RMSE, a second time but here on the validation test set to compare it with the minimum one chosen based on the edx test set in order to present our result and model performence on a novel foreign simulated dataset, we see that the best rmse would be (RMSE < 0.86490) as per the guidelines, and that what we have atchieved using the edx datasets (RMSE was 0.8638148).
+
+```{r, rmse_valid, eval=TRUE}
+
+# rmse on validation dataset (test_set)
+
+rmse_on_validation_set <- RMSE(predicted_ratings, test_set$rating)
+rmse_on_validation_set
+```
+
+The rmse(**0.8644501**) calculated on the validation set, though it is larger than the rmse (**0.8638148**) calculated on the edx test set that is used in the training and building of our model by **0.0006353**, it is lower than the rmse requested in the guidelines on the project best rmses **0.86490** by **0.0004499**, which shows that our model is performing well as requested . 
+
+
+
+
+## <span style="color: blue;">conclusion </span>
+<br /> 
+<br /> 
+To conclude, our model does well as requested. However improvment is possible given the resources and the tools are avaible to work on large datasets. Possibly, in large data sets there would be more room to get as closer with the predictions to the true datasets as possible. 
+
+
+
+
+
+
+
+
+
